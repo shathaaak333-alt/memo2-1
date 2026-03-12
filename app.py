@@ -28,6 +28,10 @@ st.sidebar.header("Grid Settings")
 T_min = st.sidebar.number_input("Min Temp (K)", value=900)
 T_max = st.sidebar.number_input("Max Temp (K)", value=1500)
 
+st.sidebar.header("Visualization Settings")
+# This slider prevents the 3D plot from being ruined by infinite spikes
+max_w_plot = st.sidebar.number_input("Max Weight for 3D Plot (kg)", value=5000, step=500, help="Clips the visual spike at low temps/high conversions.")
+
 # ============================================================
 # Core Math Functions
 # ============================================================
@@ -117,20 +121,39 @@ st.divider()
 
 # --- 3D Plot ---
 st.subheader("Interactive 3D Surface: T vs X vs W")
-fig_3d = go.Figure(data=[go.Surface(x=T_grid, y=X_grid, z=W_surface, colorscale="Plasma")])
+
+# We clip the visual data here to stop the massive rate spikes from ruining the scale
+W_surface_clipped = np.clip(W_surface, 0, max_w_plot)
+
+fig_3d = go.Figure(data=[go.Surface(
+    x=T_grid, 
+    y=X_grid, 
+    z=W_surface_clipped, 
+    colorscale="Plasma",
+    cmin=0,
+    cmax=max_w_plot
+)])
+
+# Add Reference Point
 fig_3d.add_trace(go.Scatter3d(
-    x=[T_ref], y=[X_ref], z=[W_ref],
+    x=[T_ref], y=[X_ref], z=[min(W_ref, max_w_plot)],
     mode='markers+text', marker=dict(size=8, color='red'),
     text=[f"Ref: {W_ref:.2f} kg"], textposition="top center", name="Reference Point"
 ))
+
 fig_3d.update_layout(
-    scene=dict(xaxis_title="Temperature (K)", yaxis_title="Conversion, X", zaxis_title="Catalyst Weight (kg)"),
+    scene=dict(
+        xaxis_title="Temperature (K)", 
+        yaxis_title="Conversion, X", 
+        zaxis_title="Catalyst Weight (kg)",
+        zaxis=dict(range=[0, max_w_plot])
+    ),
     height=700, margin=dict(l=0, r=0, b=0, t=30)
 )
 st.plotly_chart(fig_3d, use_container_width=True)
 
 st.download_button(
-    label="Download 3D Surface Data (Excel)",
+    label="Download Raw 3D Data (Unclipped Excel)",
     data=to_excel_bytes(surface_df),
     file_name="smr_3d_surface_data.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -142,9 +165,12 @@ st.divider()
 st.subheader("Reference Temperature Slices")
 fig_2d, ax = plt.subplots(figsize=(10, 6))
 for T in slice_temperatures:
-    ax.plot(X_array, catalyst_weight_curve(X_array, T), linewidth=2, label=f"{T} K")
+    # Also clip the 2D slices so they remain readable
+    w_curve = catalyst_weight_curve(X_array, T)
+    ax.plot(X_array, np.clip(w_curve, 0, max_w_plot), linewidth=2, label=f"{T} K")
 
-ax.scatter([X_ref], [W_ref], c="red", s=70, zorder=5, label="Reference Point")
+ax.scatter([X_ref], [min(W_ref, max_w_plot)], c="red", s=70, zorder=5, label="Reference Point")
+ax.set_ylim(0, max_w_plot)
 ax.set_xlabel("Conversion, X")
 ax.set_ylabel("Catalyst Weight (kg)")
 ax.grid(True, alpha=0.3)
